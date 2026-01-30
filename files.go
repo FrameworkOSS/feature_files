@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/FrameworkOSS/portal/features/commands/handler"
-	"github.com/FrameworkOSS/portal/portal"
+	"github.com/FrameworkOSS/event"
+	"github.com/FrameworkOSS/feature_commands/handler"
+	"github.com/FrameworkOSS/portal"
 	"github.com/fatih/color"
 )
 
@@ -68,14 +69,14 @@ var (
 type Files struct {
 	lockResp  sync.Mutex
 	processor *handler.EventCommandHandler
-	resps     []*portal.Event
+	resps     []*event.Event
 
 	workdir string
 }
 
 func NewFiles() (f *Files) {
 	f = new(Files)
-	f.resps = make([]*portal.Event, 0)
+	f.resps = make([]*event.Event, 0)
 	f.processor = handler.NewEventCommandHandler()
 
 	f.processor.GetEventHandler().
@@ -88,20 +89,20 @@ func NewFiles() (f *Files) {
 	return
 }
 
-func (f *Files) respond(ctx, r *portal.Event) {
+func (f *Files) respond(ctx, r *event.Event) {
 	portal.EventClaim(ctx, r)
 	go f.storeResp(r)
 }
 
-func (f *Files) eWorkdir(e *portal.Event) error {
+func (f *Files) eWorkdir(e *event.Event) error {
 	if e.GetDataSize() == 0 {
-		f.storeResp(portal.NewEvent().SetID("workdir").SetData([]byte(f.workdir)).AddParticipants(e.GetProducer()))
+		f.storeResp(event.NewEvent().SetID("workdir").SetData([]byte(f.workdir)).AddParticipants(e.GetProducer()))
 		return nil
 	}
 
 	wd := string(e.GetData())
 	if err := testDir(wd); err != nil {
-		f.storeResp(portal.NewEventError(f.ID(), err).AddParticipants(e.GetProducer()))
+		f.storeResp(event.NewEventError(f.ID(), err).AddParticipants(e.GetProducer()))
 		return nil
 	}
 
@@ -111,38 +112,38 @@ func (f *Files) eWorkdir(e *portal.Event) error {
 
 func (f *Files) setWorkdir(workdir string) {
 	f.workdir = workdir
-	f.respond(nil, portal.NewEvent().SetID("workdir").SetData([]byte(workdir)))
+	f.respond(nil, event.NewEvent().SetID("workdir").SetData([]byte(workdir)))
 }
 
-func (f *Files) cmdDirCh(cmd *handler.Command, e *portal.Event) error {
+func (f *Files) cmdDirCh(cmd *handler.Command, e *event.Event) error {
 	wd := f.workdir
 	dir := cmd.GetArgument("dir").GetValueString() //TODO: Switch to cmd.GetArguments("dir")
 
 	if err := testDir(dir); err != nil {
 		f.workdir = wd //Useless until handling multiple dir arguments!
-		f.respond(e, portal.NewEventError(f.ID(), err))
+		f.respond(e, event.NewEventError(f.ID(), err))
 		return fmt.Errorf("files: %v", err)
 	}
 
 	if err := os.Chdir(dir); err != nil {
 		f.workdir = wd
-		f.respond(e, portal.NewEventError(f.ID(), err))
+		f.respond(e, event.NewEventError(f.ID(), err))
 		return fmt.Errorf("files: %v", err)
 	}
 
 	wd, err := os.Getwd()
 	if err != nil {
 		f.workdir = wd
-		f.respond(e, portal.NewEventError(f.ID(), err))
+		f.respond(e, event.NewEventError(f.ID(), err))
 		return fmt.Errorf("files: %v", err)
 	}
 
 	f.setWorkdir(wd)
-	f.respond(e, portal.NewEventResponse(f.ID(), nil).AddParticipants(e.GetProducer()))
+	f.respond(e, event.NewEventResponse(f.ID(), nil).AddParticipants(e.GetProducer()))
 	return nil
 }
 
-func (f *Files) cmdDirLs(cmd *handler.Command, e *portal.Event) error {
+func (f *Files) cmdDirLs(cmd *handler.Command, e *event.Event) error {
 	dir := f.workdir
 	if test := cmd.GetArgument("dir"); test != nil { //TODO: Switch to cmd.GetArgumentsID("dir")
 		dir = test.GetValueString()
@@ -150,13 +151,13 @@ func (f *Files) cmdDirLs(cmd *handler.Command, e *portal.Event) error {
 	nocolor := cmd.GetArgument("nocolor") != nil //True if specified
 
 	if err := testDir(dir); err != nil {
-		f.respond(e, portal.NewEventError(f.ID(), err))
+		f.respond(e, event.NewEventError(f.ID(), err))
 		return fmt.Errorf("files: %v", err)
 	}
 
 	paths, err := os.ReadDir(dir)
 	if err != nil {
-		f.respond(e, portal.NewEventError(f.ID(), err))
+		f.respond(e, event.NewEventError(f.ID(), err))
 		return fmt.Errorf("files: %v", err)
 	}
 
@@ -176,7 +177,7 @@ func (f *Files) cmdDirLs(cmd *handler.Command, e *portal.Event) error {
 		}
 	}
 
-	f.respond(e, portal.NewEventResponse(f.ID(), []byte(resp)).AddParticipants(e.GetProducer()))
+	f.respond(e, event.NewEventResponse(f.ID(), []byte(resp)).AddParticipants(e.GetProducer()))
 	return nil
 }
 
@@ -198,13 +199,13 @@ func testDir(path string) error {
 	return nil
 }
 
-func (f *Files) storeResp(e *portal.Event) {
+func (f *Files) storeResp(e *event.Event) {
 	f.lockResp.Lock()
 	f.resps = append(f.resps, e)
 	f.lockResp.Unlock()
 }
 
-func (f *Files) readResp() (e *portal.Event) {
+func (f *Files) readResp() (e *event.Event) {
 	if len(f.resps) > 0 {
 		f.lockResp.Lock()
 		e = f.resps[0]
@@ -245,7 +246,7 @@ func (f *Files) Open() error {
 	}
 
 	f.respond(nil, handler.NewEventCommandAdd(f.ID(), cmds...))
-	f.respond(nil, portal.NewEventReady(f.ID(), true))
+	f.respond(nil, event.NewEventReady(f.ID(), true))
 	f.setWorkdir(wd)
 	return nil
 }
@@ -254,10 +255,10 @@ func (f *Files) Close() (errs []error, retry bool) {
 	return
 }
 
-func (f *Files) Input(e *portal.Event) error {
+func (f *Files) Input(e *event.Event) error {
 	return f.processor.Process(e)
 }
 
-func (f *Files) Output() (*portal.Event, error) {
+func (f *Files) Output() (*event.Event, error) {
 	return f.readResp(), nil
 }
