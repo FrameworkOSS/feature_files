@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/FrameworkOSS/event"
 	"github.com/FrameworkOSS/feature_commands/handler"
+	"github.com/FrameworkOSS/feature_files/metadata"
 	"github.com/FrameworkOSS/portal"
 	"github.com/fatih/color"
 )
@@ -15,55 +17,6 @@ import (
 var (
 	cyan   = color.New(color.FgCyan).SprintFunc()
 	yellow = color.New(color.FgYellow).SprintFunc()
-
-	aliasArgDir = []string{"d", "directory", "f", "folder"}
-)
-
-var (
-	cmds     = []*handler.Command{cmdDirCh, cmdDirLs}
-	cmdDirCh = handler.NewCommand().
-			SetID("cd").
-			SetName("Directory Change").
-			SetAbout("Changes the current work directory on the filesystem.").
-			SetUsage("Provide the relative or absolute path to change the work directory to.").
-			SetAliases("chdir", "wd", "chwd").
-			SetRequiresArguments(true).
-			SetRequiresPreprocessing(true).
-			SetArgument(handler.NewCommandArg().
-				SetID("dir").
-				SetName("directory").
-				SetAbout("The directory to use.").
-				SetUsage("Provide an absolute or relative path.").
-				SetAliases(aliasArgDir...).
-				SetType(handler.CommandArgTypeString).
-				SetRequired(true).
-				SetRequiresValue(true).
-				SetRepeatable(true),
-		)
-	cmdDirLs = handler.NewCommand().
-			SetID("ls").
-			SetName("Directory List").
-			SetAbout("Lists the contents of the current work directory.").
-			SetUsage("Provide the relative or absolute path to list.").
-			SetAliases("l", "dir", "lsdir", "ldir").
-			SetRequiresArguments(true).
-			SetRequiresPreprocessing(true).
-			SetArgument(handler.NewCommandArg().
-				SetID("dir").
-				SetName("directory").
-				SetAbout("The directory to use.").
-				SetUsage("Provide an absolute or relative path.").
-				SetAliases(aliasArgDir...).
-				SetType(handler.CommandArgTypeString).
-				SetRequiresValue(true).
-				SetRepeatable(true),
-		).SetArgument(handler.NewCommandArg().
-		SetID("nocolor").
-		SetName("No Color").
-		SetAbout("Disables color rendering for terminal outputs.").
-		SetAliases().
-		SetType(handler.CommandArgTypeAuto),
-	)
 )
 
 type Files struct {
@@ -83,8 +36,8 @@ func NewFiles() (f *Files) {
 		Handle(f.eWorkdir, "workdir")
 
 	f.processor.GetCommandHandler().
-		Handle(f.cmdDirCh, cmdDirCh).
-		Handle(f.cmdDirLs, cmdDirLs)
+		Handle(f.cmdDirCh, metadata.CmdDirCh).
+		Handle(f.cmdDirLs, metadata.CmdDirLs)
 
 	return
 }
@@ -216,27 +169,27 @@ func (f *Files) readResp() (e *event.Event) {
 }
 
 func (f *Files) API() int {
-	return 0
+	return metadata.API
 }
 
 func (f *Files) ID() string {
-	return "files"
+	return metadata.ID
 }
 
 func (f *Files) Name() string {
-	return "Files"
+	return metadata.Name
 }
 
 func (f *Files) Authors() []string {
-	return []string{"JoshuaDoes"}
+	return strings.Split(metadata.Authors, ",")
 }
 
 func (f *Files) Description() string {
-	return "Provides the capabilities of a standard file manager."
+	return metadata.Description
 }
 
 func (f *Files) Version() string {
-	return "v0.0.1"
+	return metadata.Version
 }
 
 func (f *Files) Open() error {
@@ -245,7 +198,7 @@ func (f *Files) Open() error {
 		return err
 	}
 
-	f.respond(nil, handler.NewEventCommandAdd(f.ID(), cmds...))
+	f.respond(nil, handler.NewEventCommandAdd(f.ID(), metadata.Commands...))
 	f.respond(nil, event.NewEventReady(f.ID(), true))
 	f.setWorkdir(wd)
 	return nil
