@@ -47,94 +47,117 @@ func (f *Files) respond(ctx, r *event.Event) {
 	go f.storeResp(r)
 }
 
+func (f *Files) SetWorkdir(wd string) error {
+	if err := TestDir(wd); err != nil {
+		return err
+	}
+	f.workdir = wd
+	f.respond(nil, event.NewEvent().SetID("workdir").SetData([]byte(wd)))
+	return nil
+}
 func (f *Files) eWorkdir(e *event.Event) error {
 	if e.GetDataSize() == 0 {
 		f.storeResp(event.NewEvent().SetID("workdir").SetData([]byte(f.workdir)).AddParticipants(e.GetProducer()))
 		return nil
 	}
+	return f.SetWorkdir(string(e.GetData()))
+}
 
-	wd := string(e.GetData())
-	if err := testDir(wd); err != nil {
-		f.storeResp(event.NewEventError(f.ID(), err).AddParticipants(e.GetProducer()))
-		return nil
+func (f *Files) DirCh(dir ...string) error {
+	og := f.workdir
+	for i := range dir {
+		d := dir[i]
+		if err := TestDir(d); err != nil {
+			f.workdir = og
+			return err
+		}
+
+		if err := os.Chdir(d); err != nil {
+			f.workdir = og
+			return err
+		}
+
+		wd, err := os.Getwd()
+		if err != nil {
+			f.workdir = og
+			return err
+		}
+
+		f.SetWorkdir(wd)
 	}
-
-	f.workdir = wd
 	return nil
 }
-
-func (f *Files) setWorkdir(workdir string) {
-	f.workdir = workdir
-	f.respond(nil, event.NewEvent().SetID("workdir").SetData([]byte(workdir)))
-}
-
 func (f *Files) cmdDirCh(cmd *handler.Command, e *event.Event) error {
-	wd := f.workdir
-	dir := cmd.GetArgument("dir").GetValueString() //TODO: Switch to cmd.GetArguments("dir")
+	args := cmd.GetArgumentsID("dir")
+	dirs := make([]string, len(args))
+	for i := range args {
+		dirs[i] = args[i].GetValueString()
+	}
 
-	if err := testDir(dir); err != nil {
-		f.workdir = wd //Useless until handling multiple dir arguments!
+	if err := f.DirCh(dirs...); err != nil {
 		f.respond(e, event.NewEventError(f.ID(), err))
 		return fmt.Errorf("files: %v", err)
 	}
-
-	if err := os.Chdir(dir); err != nil {
-		f.workdir = wd
-		f.respond(e, event.NewEventError(f.ID(), err))
-		return fmt.Errorf("files: %v", err)
-	}
-
-	wd, err := os.Getwd()
-	if err != nil {
-		f.workdir = wd
-		f.respond(e, event.NewEventError(f.ID(), err))
-		return fmt.Errorf("files: %v", err)
-	}
-
-	f.setWorkdir(wd)
-	f.respond(e, event.NewEventResponse(f.ID(), nil).AddParticipants(e.GetProducer()))
 	return nil
 }
 
-func (f *Files) cmdDirLs(cmd *handler.Command, e *event.Event) error {
-	dir := f.workdir
-	if test := cmd.GetArgument("dir"); test != nil { //TODO: Switch to cmd.GetArgumentsID("dir")
-		dir = test.GetValueString()
-	}
-	nocolor := cmd.GetArgument("nocolor") != nil //True if specified
-
-	if err := testDir(dir); err != nil {
-		f.respond(e, event.NewEventError(f.ID(), err))
-		return fmt.Errorf("files: %v", err)
-	}
-
-	paths, err := os.ReadDir(dir)
-	if err != nil {
-		f.respond(e, event.NewEventError(f.ID(), err))
-		return fmt.Errorf("files: %v", err)
+func (f *Files) DirLs(nocolor bool, dir ...string) (string, error) {
+	if len(dir) == 0 {
+		dir = []string{f.workdir}
 	}
 
 	resp := ""
-	for i := range paths {
-		p := paths[i]
-		perm := p.Type().Perm()
-		name := p.Name()
-		if p.IsDir() {
-			name += "/"
+	for i := range dir {
+		d := dir[i]
+		if err := TestDir(d); err != nil {
+			return "", err
 		}
 
-		if nocolor {
-			resp += fmt.Sprintf("%s: %s\n", perm, name)
-		} else {
-			resp += fmt.Sprintf("%s: %s\n", yellow(perm), cyan(name))
+		paths, err := os.ReadDir(d)
+		if err != nil {
+			return "", err
 		}
+
+		if i > 0 {
+			resp += "\n"
+		}
+
+		for j := range paths {
+			p := paths[j]
+			perm := p.Type().Perm()
+			name := p.Name()
+			if p.IsDir() {
+				name += "/"
+			}
+
+			if nocolor {
+				resp += fmt.Sprintf("%s: %s\n", perm, name)
+			} else {
+				resp += fmt.Sprintf("%s: %s\n", yellow(perm), cyan(name))
+			}
+		}
+	}
+	return resp, nil
+}
+func (f *Files) cmdDirLs(cmd *handler.Command, e *event.Event) error {
+	args := cmd.GetArgumentsID("dir")
+	dirs := make([]string, len(args))
+	for i := range args {
+		dirs[i] = args[i].GetValueString()
+	}
+	nocolor := cmd.GetArgument("nocolor") != nil //True if specified
+
+	resp, err := f.DirLs(nocolor, dirs...)
+	if err != nil {
+		f.respond(e, event.NewEventError(f.ID(), err))
+		return fmt.Errorf("files: %v", err)
 	}
 
 	f.respond(e, event.NewEventResponse(f.ID(), []byte(resp)).AddParticipants(e.GetProducer()))
 	return nil
 }
 
-func testDir(path string) error {
+func TestDir(path string) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -200,7 +223,7 @@ func (f *Files) Open() error {
 
 	f.respond(nil, handler.NewEventCommandAdd(f.ID(), metadata.Commands...))
 	f.respond(nil, event.NewEventReady(f.ID(), true))
-	f.setWorkdir(wd)
+	f.SetWorkdir(wd)
 	return nil
 }
 
