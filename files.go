@@ -55,6 +55,9 @@ func (f *Files) SetWorkdir(wd string) error {
 	f.respond(nil, event.NewEvent().SetID("workdir").SetData([]byte(wd)))
 	return nil
 }
+func (f *Files) GetWorkdir() string {
+	return f.workdir
+}
 func (f *Files) eWorkdir(e *event.Event) error {
 	if e.GetDataSize() == 0 {
 		f.storeResp(event.NewEvent().SetID("workdir").SetData([]byte(f.workdir)).AddParticipants(e.GetProducer()))
@@ -157,21 +160,31 @@ func (f *Files) cmdDirLs(cmd *handler.Command, e *event.Event) error {
 	return nil
 }
 
-func TestDir(path string) error {
+func Stat(path string) (os.FileInfo, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	stat, err := os.Stat(abs)
+	return os.Stat(abs)
+}
+func TestDir(path string) error {
+	stat, err := Stat(path)
 	if err != nil {
 		return err
 	}
-
 	if !stat.IsDir() {
 		return fmt.Errorf("files: %s is not a directory", path)
 	}
-
+	return nil
+}
+func TestFile(path string) error {
+	stat, err := Stat(path)
+	if err != nil {
+		return err
+	}
+	if stat.IsDir() {
+		return fmt.Errorf("files: %s is not a file", path)
+	}
 	return nil
 }
 
