@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	cyan   = color.New(color.FgCyan).SprintFunc()
-	yellow = color.New(color.FgYellow).SprintFunc()
+	blue   = color.New(color.FgHiBlue).SprintFunc()
+	cyan   = color.New(color.FgHiCyan).SprintFunc()
+	yellow = color.New(color.FgHiYellow).SprintFunc()
 )
 
 type Files struct {
@@ -127,17 +128,41 @@ func (f *Files) DirLs(nocolor bool, dir ...string) (string, error) {
 
 		for j := range paths {
 			p := paths[j]
-			perm := p.Type().Perm()
 			name := p.Name()
+			dest := ""
+			perm := "??????????"
+
 			if p.IsDir() {
 				name += "/"
+				perm = "d?????????"
+			}
+			if info, err := p.Info(); err == nil {
+				perm = info.Mode().String()
+				perm = strings.ToLower(string(perm[0])) + perm[1:]
+
+				if perm[0] == 'l' {
+					target, err := os.Readlink(d + string(os.PathSeparator) + name)
+					if err == nil {
+						dest = target
+					}
+				}
 			}
 
-			if nocolor {
-				resp += fmt.Sprintf("%s: %s\n", perm, name)
-			} else {
-				resp += fmt.Sprintf("%s: %s\n", yellow(perm), cyan(name))
+			cPerm := perm
+			cName := name
+			if !nocolor {
+				cPerm = yellow(perm)
+				switch perm[0] {
+				case 'l':
+					cName = cyan(name)
+				case 'd':
+					cName = blue(name)
+				}
 			}
+			if dest != "" {
+				cName += " -> " + dest
+			}
+			resp += fmt.Sprintf("%s %s\n", cPerm, cName)
 		}
 	}
 	return resp, nil
